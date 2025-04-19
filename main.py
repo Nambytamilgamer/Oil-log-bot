@@ -10,14 +10,16 @@ intents.messages = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-before_pattern = re.compile(r"before[:\-]?\s*(\d+)", re.IGNORECASE)
-after_pattern = re.compile(r"after[:\-]?\s*(\d+)", re.IGNORECASE)
+# Updated regex to support "Oil stock before/after"
+before_pattern = re.compile(r"(?:oil stock\s*)?before[:\-]?\s*(\d+)", re.IGNORECASE)
+after_pattern = re.compile(r"(?:oil stock\s*)?after[:\-]?\s*(\d+)", re.IGNORECASE)
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
 
 def extract_oil_data(content):
+    content = content.lower().replace(",", "")  # Optional cleanup
     before_match = before_pattern.search(content)
     after_match = after_pattern.search(content)
     if before_match and after_match:
