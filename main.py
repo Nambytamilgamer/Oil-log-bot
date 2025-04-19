@@ -29,10 +29,6 @@ def extract_oil_data(content):
 
 @bot.command()
 async def oil_summary(ctx, start_time: str, end_time: str):
-    """
-    Usage: !oil_summary 2025-04-18T10:00 2025-04-19T15:00
-    Time format: YYYY-MM-DDTHH:MM (24-hr)
-    """
     try:
         start = datetime.fromisoformat(start_time)
         end = datetime.fromisoformat(end_time)
@@ -44,7 +40,7 @@ async def oil_summary(ctx, start_time: str, end_time: str):
     log_count = 0
 
     async for msg in ctx.channel.history(after=start, before=end, limit=None):
-        if msg.author.bot:
+        if msg.author.id == bot.user.id:
             continue
         oil_data = extract_oil_data(msg.content)
         if oil_data:
