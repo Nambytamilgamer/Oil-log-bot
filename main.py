@@ -1,8 +1,10 @@
+
 import discord
 from discord.ext import commands
 import re
 import os
 from datetime import datetime
+import pytz
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -10,16 +12,14 @@ intents.messages = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Updated regex to support "Oil stock before/after"
-before_pattern = re.compile(r"(?:oil stock\s*)?before[:\-]?\s*(\d+)", re.IGNORECASE)
-after_pattern = re.compile(r"(?:oil stock\s*)?after[:\-]?\s*(\d+)", re.IGNORECASE)
+DEBUG = True  # Change to False to disable debug messages in Discord
 
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user}")
+# Updated regex to match various formats
+before_pattern = re.compile(r"(?:oil\s*stock\s*)?before[:\-]?\s*(\d+)", re.IGNORECASE)
+after_pattern = re.compile(r"(?:oil\s*stock\s*)?after[:\-]?\s*(\d+)", re.IGNORECASE)
 
 def extract_oil_data(content):
-    content = content.lower().replace(",", "")  # Optional cleanup
+    content = content.lower().replace(",", "")  # Sanitize
     before_match = before_pattern.search(content)
     after_match = after_pattern.search(content)
     if before_match and after_match:
@@ -29,34 +29,43 @@ def extract_oil_data(content):
         return before, after, taken
     return None
 
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+
 @bot.command()
 async def oil_summary(ctx, start_time: str, end_time: str):
     try:
-        start = datetime.fromisoformat(start_time)
-        end = datetime.fromisoformat(end_time)
+        ist = pytz.timezone("Asia/Kolkata")
+        start = datetime.fromisoformat(start_time).astimezone(ist)
+        end = datetime.fromisoformat(end_time).astimezone(ist)
     except ValueError:
-        await ctx.send("Invalid datetime format! Use YYYY-MM-DDTHH:MM (e.g. 2025-04-18T14:30)")
+        await ctx.send("Invalid datetime format! Use `YYYY-MM-DDTHH:MM+05:30` (e.g. `2025-04-19T08:00+05:30`)")
         return
 
     total_taken = 0
     log_count = 0
+    logs = []
 
     async for msg in ctx.channel.history(after=start, before=end, limit=None):
-        if msg.author.id == bot.user.id:
+        if msg.author.bot:
             continue
         oil_data = extract_oil_data(msg.content)
         if oil_data:
-            _, _, taken = oil_data
-            total_taken += taken
+            before, after, taken = oil_data
             log_count += 1
+            total_taken += taken
+            logs.append((msg.author.name, taken, before, after, msg.created_at.strftime("%Y-%m-%d %H:%M:%S")))
+            if DEBUG:
+                await ctx.send(f"**{msg.author.name}**: Taken = {taken}L (from {before} → {after})")
 
     if log_count == 0:
-        await ctx.send("No oil logs found in that time frame.")
+        await ctx.send("No valid oil logs found in that time frame.")
     else:
         await ctx.send(
-            f"From **{start_time}** to **{end_time}**:\n"
-            f"Logs found: {log_count}\n"
-            f"Total oil taken: **{total_taken}L**"
+            f"\n**OIL SUMMARY** from **{start.strftime('%Y-%m-%d %H:%M')}** to **{end.strftime('%Y-%m-%d %H:%M')}**:\n"
+            f"Logs Found: {log_count}\n"
+            f"Total Oil Taken: **{total_taken}L**"
         )
 
 bot.run(os.environ['TOKEN'])
