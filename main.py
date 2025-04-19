@@ -46,21 +46,32 @@ async def oil_summary(ctx, start_time: str, end_time: str):
     logs = []
     previous_after = None
 
+    # Fetch all messages in the time frame
     async for msg in ctx.channel.history(after=start, before=end, limit=None):
         if msg.author.bot:
             continue
         oil_data = extract_oil_data(msg.content)
         if oil_data:
             before, after = oil_data
-            if previous_after is not None:
-                taken = previous_after - before
-                if taken > 0:  # Only count if there's a positive difference
-                    log_count += 1
-                    total_taken += taken
-                    logs.append((msg.author.name, taken, previous_after, before, msg.created_at.strftime("%Y-%m-%d %H:%M:%S")))
-                    if DEBUG:
-                        await ctx.send(f"**{msg.author.name}**: Taken = {taken}L (from {previous_after} → {before})")
-            previous_after = after  # Update previous "after" for next comparison
+            logs.append((msg.author.name, before, after, msg.created_at))
+    
+    # Sort logs by timestamp to ensure chronological order
+    logs.sort(key=lambda x: x[3])
+
+    # Now calculate the oil taken between consecutive logs
+    for i in range(1, len(logs)):
+        previous_log = logs[i-1]
+        current_log = logs[i]
+
+        previous_after = previous_log[2]  # "after" value of the previous log
+        current_before = current_log[1]  # "before" value of the current log
+
+        taken = previous_after - current_before
+        if taken > 0:  # Only count if there's a positive difference
+            log_count += 1
+            total_taken += taken
+            if DEBUG:
+                await ctx.send(f"**{previous_log[0]} → {current_log[0]}**: Taken = {taken}L (from {previous_after} → {current_before})")
 
     if log_count == 0:
         await ctx.send("No valid oil logs found in that time frame.")
