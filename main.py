@@ -1,4 +1,3 @@
-
 import discord
 from discord.ext import commands
 import re
@@ -25,8 +24,7 @@ def extract_oil_data(content):
     if before_match and after_match:
         before = int(before_match.group(1))
         after = int(after_match.group(1))
-        taken = before - after
-        return before, after, taken
+        return before, after
     return None
 
 @bot.event
@@ -46,18 +44,23 @@ async def oil_summary(ctx, start_time: str, end_time: str):
     total_taken = 0
     log_count = 0
     logs = []
+    previous_after = None
 
     async for msg in ctx.channel.history(after=start, before=end, limit=None):
         if msg.author.bot:
             continue
         oil_data = extract_oil_data(msg.content)
         if oil_data:
-            before, after, taken = oil_data
-            log_count += 1
-            total_taken += taken
-            logs.append((msg.author.name, taken, before, after, msg.created_at.strftime("%Y-%m-%d %H:%M:%S")))
-            if DEBUG:
-                await ctx.send(f"**{msg.author.name}**: Taken = {taken}L (from {before} → {after})")
+            before, after = oil_data
+            if previous_after is not None:
+                taken = previous_after - before
+                if taken > 0:  # Only count if there's a positive difference
+                    log_count += 1
+                    total_taken += taken
+                    logs.append((msg.author.name, taken, previous_after, before, msg.created_at.strftime("%Y-%m-%d %H:%M:%S")))
+                    if DEBUG:
+                        await ctx.send(f"**{msg.author.name}**: Taken = {taken}L (from {previous_after} → {before})")
+            previous_after = after  # Update previous "after" for next comparison
 
     if log_count == 0:
         await ctx.send("No valid oil logs found in that time frame.")
