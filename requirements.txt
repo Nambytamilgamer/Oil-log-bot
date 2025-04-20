@@ -1,2 +1,4 @@
 discord.py
 pytz
+gspread
+oauth2client
