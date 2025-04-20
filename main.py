@@ -148,3 +148,11 @@ async def daily_summary():
             start = end - timedelta(days=1)
             await send_summary(channel, start.isoformat(), end.isoformat())
 
+# ✅ Start the bot with TOKEN from environment variable
+if __name__ == "__main__":
+    import asyncio
+
+    async def start_bot():
+        await bot.start(os.getenv("TOKEN"))
+
+    asyncio.run(start_bot())
