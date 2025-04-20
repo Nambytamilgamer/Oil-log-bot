@@ -2,8 +2,12 @@ import discord
 from discord.ext import commands, tasks
 import re
 import os
+import json
 from datetime import datetime, timedelta
 import pytz
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from collections import defaultdict
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -11,24 +15,53 @@ intents.messages = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-CHANNEL_ID = 1347192193453916171  # Replace with your oil log channel ID
-SUMMARY_HOUR_IST = 18  # 6 PM IST
+CHANNEL_ID = 1347192193453916171
+SUMMARY_HOUR_IST = 18
 
-# Regex patterns
+# Setup Google Sheets
+def get_gsheet():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_json = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, scope)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(os.getenv("GOOGLE_SHEET_ID")).sheet1
+    return sheet
+
+# Regex
 before_pattern = re.compile(r"before\s*[:\-]?\s*(\d+)", re.IGNORECASE)
 after_pattern = re.compile(r"after\s*[:\-]?\s*(\d+)", re.IGNORECASE)
+trip_pattern = re.compile(r"trip\s*(\d+)", re.IGNORECASE)
 
 def extract_oil_data(content):
     before = before_pattern.search(content)
     after = after_pattern.search(content)
+    trip = trip_pattern.search(content)
     if before and after:
-        return int(before.group(1)), int(after.group(1))
+        return int(before.group(1)), int(after.group(1)), int(trip.group(1)) if trip else None
     return None
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-    daily_summary.start()  # Start the task when bot is ready
+    daily_summary.start()
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    oil_data = extract_oil_data(message.content)
+    if oil_data:
+        before, after, trip_no = oil_data
+        sheet = get_gsheet()
+        sheet.append_row([
+            message.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            message.author.name,
+            trip_no if trip_no is not None else "",
+            before,
+            after
+        ])
+    await bot.process_commands(message)
 
 @bot.command()
 async def oil_summary(ctx, start_time: str, end_time: str):
@@ -40,7 +73,7 @@ async def send_summary(channel, start_time_str, end_time_str):
         start = datetime.fromisoformat(start_time_str).astimezone(ist)
         end = datetime.fromisoformat(end_time_str).astimezone(ist)
     except ValueError:
-        await channel.send("Invalid datetime format! Use `YYYY-MM-DDTHH:MM+05:30`")
+        await channel.send("❌ Invalid datetime format!\nUse format like: `2025-04-14T00:08+05:30`")
         return
 
     messages = []
@@ -49,7 +82,7 @@ async def send_summary(channel, start_time_str, end_time_str):
             continue
         oil_data = extract_oil_data(msg.content)
         if oil_data:
-            before, after = oil_data
+            before, after, _ = oil_data
             messages.append({
                 "author": msg.author.name,
                 "before": before,
@@ -57,8 +90,7 @@ async def send_summary(channel, start_time_str, end_time_str):
                 "timestamp": msg.created_at
             })
 
-    messages.sort(key=lambda x: x["timestamp"])  # sort by time
-
+    messages.sort(key=lambda x: x["timestamp"])
     total_taken = 0
     trip_logs = []
 
@@ -68,18 +100,41 @@ async def send_summary(channel, start_time_str, end_time_str):
         oil_taken = current["after"] - next_msg["before"]
         if oil_taken > 0:
             total_taken += oil_taken
-            trip_logs.append(
-                f"Trip {i+1} by {current['author']}: {current['after']} → {next_msg['before']} = {oil_taken}L"
-            )
+            trip_logs.append(f"Trip {i+1} by {current['author']}: {current['after']} → {next_msg['before']} = {oil_taken}L")
 
     if not trip_logs:
-        await channel.send("No valid oil logs or no oil movement found in the time frame.")
+        await channel.send("No valid oil movement in the given time frame.")
     else:
         summary = "\n".join(trip_logs)
         await channel.send(
-            f"**OIL SUMMARY** from {start.strftime('%d-%m-%Y %H:%M')} to {end.strftime('%d-%m-%Y %H:%M')}\n\n"
+            f"**🛢 OIL SUMMARY**\nFrom `{start.strftime('%d-%m-%Y %H:%M')}` to `{end.strftime('%d-%m-%Y %H:%M')}`\n\n"
             f"{summary}\n\n**Total Oil Taken: {total_taken} L**"
         )
+
+@bot.command()
+async def trip_summary(ctx):
+    ist = pytz.timezone("Asia/Kolkata")
+    since = datetime.now(ist) - timedelta(days=7)
+
+    sheet = get_gsheet()
+    data = sheet.get_all_records()
+    counts = defaultdict(int)
+
+    for row in data:
+        ts_str = row['Timestamp']
+        try:
+            ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S").astimezone(ist)
+            if ts >= since and row['Trip No']:
+                counts[row['Employee']] += 1
+        except:
+            continue
+
+    if not counts:
+        await ctx.send("No trips recorded in the last 7 days.")
+        return
+
+    summary = "\n".join([f"{name}: {count} trips" for name, count in counts.items()])
+    await ctx.send(f"**🧾 Trip Summary (Last 7 Days)**\n{summary}")
 
 @tasks.loop(minutes=1)
 async def daily_summary():
