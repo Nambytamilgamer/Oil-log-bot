@@ -14,14 +14,13 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Channel IDs (hardcoded)
-OIL_LOG_CHANNEL_ID = 1347225637949149285  # Employees post logs here
-REPORT_CHANNEL_ID = 1347192193453916171   # Daily summary posted here
+# Channel IDs
+OIL_LOG_CHANNEL_ID = 1347225637949149285
+REPORT_CHANNEL_ID = 1347192193453916171
 
-# Timezone
 IST = pytz.timezone("Asia/Kolkata")
 
-# Google Sheet Setup
+# Google Sheets setup
 gc = gspread.service_account_from_dict(json.loads(os.getenv("GOOGLE_CREDS_JSON")))
 sheet = gc.open_by_key(os.getenv("GOOGLE_SHEET_ID"))
 worksheet = sheet.sheet1
@@ -182,7 +181,6 @@ async def daily_summary():
 
     total_taken = calculate_oil_taken(messages)
 
-    # Log to Google Sheets
     for entry in messages:
         worksheet.append_row([
             entry["author"],
@@ -198,4 +196,3 @@ async def daily_summary():
 
 
 bot.run(os.getenv("TOKEN"))
-
