@@ -15,10 +15,12 @@ intents.messages = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-CHANNEL_ID = 1347192193453916171
-SUMMARY_HOUR_IST = 18
+# ✅ Updated channel IDs
+LOG_CHANNEL_ID = 1347225637949149285     # Employees log oil data here
+REPORT_CHANNEL_ID = 1347192193453916171  # Bot sends summaries here
+SUMMARY_HOUR_IST = 18  # Time bot sends auto daily summary
 
-# Setup Google Sheets
+# --- Google Sheet Setup ---
 def get_gsheet():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds_json = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
@@ -27,7 +29,7 @@ def get_gsheet():
     sheet = client.open_by_key(os.getenv("GOOGLE_SHEET_ID")).sheet1
     return sheet
 
-# Regex
+# --- Regex for message parsing ---
 before_pattern = re.compile(r"before\s*[:\-]?\s*(\d+)", re.IGNORECASE)
 after_pattern = re.compile(r"after\s*[:\-]?\s*(\d+)", re.IGNORECASE)
 trip_pattern = re.compile(r"trip\s*(\d+)", re.IGNORECASE)
@@ -40,6 +42,7 @@ def extract_oil_data(content):
         return int(before.group(1)), int(after.group(1)), int(trip.group(1)) if trip else None
     return None
 
+# --- Events ---
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
@@ -47,7 +50,7 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    if message.author.bot:
+    if message.author.bot or message.channel.id != LOG_CHANNEL_ID:
         return
 
     oil_data = extract_oil_data(message.content)
@@ -63,21 +66,48 @@ async def on_message(message):
         ])
     await bot.process_commands(message)
 
+# --- Commands ---
 @bot.command()
 async def oil_summary(ctx, start_time: str, end_time: str):
     await send_summary(ctx.channel, start_time, end_time)
 
+@bot.command()
+async def trip_summary(ctx):
+    ist = pytz.timezone("Asia/Kolkata")
+    since = datetime.now(ist) - timedelta(days=7)
+    sheet = get_gsheet()
+    data = sheet.get_all_records()
+    counts = defaultdict(int)
+
+    for row in data:
+        ts_str = row['Timestamp']
+        try:
+            ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S").astimezone(ist)
+            if ts >= since and row['Trip No']:
+                counts[row['Employee']] += 1
+        except:
+            continue
+
+    if not counts:
+        await ctx.send("No trips recorded in the last 7 days.")
+        return
+
+    summary = "\n".join([f"{name}: {count} trips" for name, count in counts.items()])
+    await ctx.send(f"**🧾 Trip Summary (Last 7 Days)**\n{summary}")
+
+# --- Summary Function ---
 async def send_summary(channel, start_time_str, end_time_str):
     try:
         ist = pytz.timezone("Asia/Kolkata")
         start = datetime.fromisoformat(start_time_str).astimezone(ist)
         end = datetime.fromisoformat(end_time_str).astimezone(ist)
     except ValueError:
-        await channel.send("❌ Invalid datetime format!\nUse format like: `2025-04-14T00:08+05:30`")
+        await channel.send("❌ Invalid datetime format!\nUse: `YYYY-MM-DDTHH:MM+05:30`")
         return
 
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
     messages = []
-    async for msg in channel.history(after=start, before=end, limit=None):
+    async for msg in log_channel.history(after=start, before=end, limit=None):
         if msg.author.bot:
             continue
         oil_data = extract_oil_data(msg.content)
@@ -111,44 +141,20 @@ async def send_summary(channel, start_time_str, end_time_str):
             f"{summary}\n\n**Total Oil Taken: {total_taken} L**"
         )
 
-@bot.command()
-async def trip_summary(ctx):
-    ist = pytz.timezone("Asia/Kolkata")
-    since = datetime.now(ist) - timedelta(days=7)
-
-    sheet = get_gsheet()
-    data = sheet.get_all_records()
-    counts = defaultdict(int)
-
-    for row in data:
-        ts_str = row['Timestamp']
-        try:
-            ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S").astimezone(ist)
-            if ts >= since and row['Trip No']:
-                counts[row['Employee']] += 1
-        except:
-            continue
-
-    if not counts:
-        await ctx.send("No trips recorded in the last 7 days.")
-        return
-
-    summary = "\n".join([f"{name}: {count} trips" for name, count in counts.items()])
-    await ctx.send(f"**🧾 Trip Summary (Last 7 Days)**\n{summary}")
-
+# --- Daily Auto Summary ---
 @tasks.loop(minutes=1)
 async def daily_summary():
     ist = pytz.timezone("Asia/Kolkata")
     now = datetime.now(ist)
 
     if now.hour == SUMMARY_HOUR_IST and now.minute == 0:
-        channel = bot.get_channel(CHANNEL_ID)
-        if channel:
+        report_channel = bot.get_channel(REPORT_CHANNEL_ID)
+        if report_channel:
             end = now
             start = end - timedelta(days=1)
-            await send_summary(channel, start.isoformat(), end.isoformat())
+            await send_summary(report_channel, start.isoformat(), end.isoformat())
 
-# ✅ Start the bot with TOKEN from environment variable
+# --- Start Bot ---
 if __name__ == "__main__":
     import asyncio
 
