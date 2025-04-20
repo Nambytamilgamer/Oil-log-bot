@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import pytz
 import json
 import gspread
@@ -22,7 +22,7 @@ REPORT_CHANNEL_ID = 1347192193453916171   # Daily summary posted here
 IST = pytz.timezone("Asia/Kolkata")
 
 # Google Sheet Setup
-gc = gspread.service_account_from_dict(json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON")))
+gc = gspread.service_account_from_dict(json.loads(os.getenv("GOOGLE_CREDS_JSON")))
 sheet = gc.open_by_key(os.getenv("GOOGLE_SHEET_ID"))
 worksheet = sheet.sheet1
 
@@ -46,14 +46,13 @@ def extract_oil_data(message):
 
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user}')
+    print(f'✅ Logged in as {bot.user}')
     daily_summary.start()
 
 
 def calculate_oil_taken(entries):
     entries.sort(key=lambda x: x["timestamp"])
     total_taken = 0
-
     for i in range(len(entries) - 1):
         current_after = entries[i]["after"]
         next_before = entries[i + 1]["before"]
@@ -65,15 +64,13 @@ def calculate_oil_taken(entries):
 
 @bot.command()
 async def oil_summary(ctx, start_time: str = None, end_time: str = None):
-    ist = pytz.timezone("Asia/Kolkata")
-
     if not start_time or not end_time:
-        end = datetime.now(ist)
+        end = datetime.now(IST)
         start = end - timedelta(days=1)
     else:
         try:
-            start = datetime.fromisoformat(start_time).astimezone(ist)
-            end = datetime.fromisoformat(end_time).astimezone(ist)
+            start = datetime.fromisoformat(start_time).astimezone(IST)
+            end = datetime.fromisoformat(end_time).astimezone(IST)
         except ValueError:
             await ctx.send("❌ Invalid datetime format! Use `YYYY-MM-DDTHH:MM+05:30`")
             return
@@ -111,15 +108,13 @@ async def oil_summary(ctx, start_time: str = None, end_time: str = None):
 
 @bot.command()
 async def trip_summary(ctx, start_time: str = None, end_time: str = None):
-    ist = pytz.timezone("Asia/Kolkata")
-
     if not start_time or not end_time:
-        end = datetime.now(ist)
+        end = datetime.now(IST)
         start = end - timedelta(days=7)
     else:
         try:
-            start = datetime.fromisoformat(start_time).astimezone(ist)
-            end = datetime.fromisoformat(end_time).astimezone(ist)
+            start = datetime.fromisoformat(start_time).astimezone(IST)
+            end = datetime.fromisoformat(end_time).astimezone(IST)
         except ValueError:
             await ctx.send("❌ Invalid datetime format! Use `YYYY-MM-DDTHH:MM+05:30`")
             return
@@ -157,7 +152,7 @@ async def trip_summary(ctx, start_time: str = None, end_time: str = None):
     await ctx.send(f"**🧾 Trip Summary**\nFrom `{start.strftime('%d-%m-%Y %H:%M')}` to `{end.strftime('%d-%m-%Y %H:%M')}`\n\n{summary}")
 
 
-@tasks.loop(time=datetime.time(datetime.strptime("18:00", "%H:%M").time(), tzinfo=IST))
+@tasks.loop(time=time(hour=18, minute=0, tzinfo=IST))
 async def daily_summary():
     now = datetime.now(IST)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -203,3 +198,4 @@ async def daily_summary():
 
 
 bot.run(os.getenv("TOKEN"))
+
