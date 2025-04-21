@@ -64,22 +64,21 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
+    await bot.process_commands(message)
+
     if message.author.bot or message.channel.id != OIL_LOG_CHANNEL_ID:
-        await bot.process_commands(message)
         return
 
     oil_data = extract_oil_data(message.content)
     if oil_data:
         before, after, trip_no = oil_data
         worksheet.append_row([
+            message.created_at.astimezone(IST).strftime("%d-%m-%Y %H:%M"),
             message.author.name,
             trip_no,
             before,
-            after,
-            message.created_at.astimezone(IST).strftime("%d-%m-%Y %H:%M")
+            after
         ])
-
-    await bot.process_commands(message)
 
 
 @bot.command()
@@ -195,11 +194,11 @@ async def daily_summary():
 
     for entry in messages:
         worksheet.append_row([
+            entry["timestamp"].astimezone(IST).strftime("%d-%m-%Y %H:%M"),
             entry["author"],
             entry["trip_no"],
             entry["before"],
-            entry["after"],
-            entry["timestamp"].astimezone(IST).strftime("%d-%m-%Y %H:%M")
+            entry["after"]
         ])
 
     await report_channel.send(
