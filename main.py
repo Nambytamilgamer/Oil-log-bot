@@ -105,7 +105,7 @@ async def on_message(message):
 @tasks.loop(minutes=1)
 async def daily_summary():
     now = datetime.now(pytz.timezone("Asia/Kolkata"))
-    if now.hour == 18 and now.minute == 0:
+    if now.hour == 19 and now.minute == 29:
         log_channel = bot.get_channel(LOG_CHANNEL_ID)
         messages = [m async for m in log_channel.history(limit=1000)]
         messages.reverse()
