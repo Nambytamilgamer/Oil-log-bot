@@ -8,11 +8,14 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import re
 import json
+from dateutil import parser as dtparser
 
+# ENV VARS
 TOKEN = os.environ['TOKEN']
 GOOGLE_SHEET_ID = os.environ['GOOGLE_SHEET_ID']
 GOOGLE_CREDS_JSON = json.loads(os.environ['GOOGLE_CREDS_JSON'])
 
+# CHANNELS
 LOG_CHANNEL_ID = 1347225637949149285
 REPORT_CHANNEL_ID = 1347192193453916171
 
@@ -22,6 +25,7 @@ intents.message_content = True
 intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Google Sheets Setup
 creds = service_account.Credentials.from_service_account_info(
     GOOGLE_CREDS_JSON,
     scopes=["https://www.googleapis.com/auth/spreadsheets"]
@@ -31,6 +35,7 @@ sheet = sheets_service.spreadsheets()
 
 SHEET_RANGE = "Sheet1!A:F"
 
+# Utils
 def get_logs_from_sheet():
     result = sheet.values().get(spreadsheetId=GOOGLE_SHEET_ID, range=SHEET_RANGE).execute()
     values = result.get('values', [])
@@ -58,10 +63,13 @@ def extract_log_data(message):
 def calculate_oil(logs):
     total = 0
     for i in range(len(logs) - 1):
-        after1 = logs[i][5]
-        before2 = logs[i+1][4]
-        if after1 != before2:
-            total += abs(before2 - after1)
+        try:
+            after1 = int(logs[i][5])
+            before2 = int(logs[i+1][4])
+            if after1 != before2:
+                total += abs(before2 - after1)
+        except:
+            continue
     return total
 
 def calculate_trips(logs):
@@ -82,7 +90,12 @@ async def on_message(message):
 
     if message.channel.id == LOG_CHANNEL_ID and not message.author.bot:
         logs = get_logs_from_sheet()
-        last_logged_time = datetime.min if not logs else datetime.fromisoformat(logs[-1][0])
+        last_logged_time = datetime.min
+        if logs:
+            try:
+                last_logged_time = dtparser.parse(logs[-1][0])
+            except:
+                pass
 
         if message.created_at > last_logged_time:
             data = extract_log_data(message)
@@ -92,17 +105,12 @@ async def on_message(message):
 @tasks.loop(minutes=1)
 async def daily_summary():
     now = datetime.now(pytz.timezone("Asia/Kolkata"))
-    if now.hour == 19 and now.minute == 11:
+    if now.hour == 18 and now.minute == 0:
         log_channel = bot.get_channel(LOG_CHANNEL_ID)
-        messages = [m async for m in log_channel.history(limit=500)]
+        messages = [m async for m in log_channel.history(limit=1000)]
         messages.reverse()
 
-        valid_logs = []
-        for msg in messages:
-            data = extract_log_data(msg)
-            if data:
-                valid_logs.append(data)
-
+        valid_logs = [extract_log_data(m) for m in messages if extract_log_data(m)]
         oil_moved = calculate_oil(valid_logs)
         trips = calculate_trips(valid_logs)
 
@@ -115,11 +123,16 @@ async def daily_summary():
 
 @bot.command()
 async def oil_summary(ctx, start: str, end: str):
-    start_dt = datetime.fromisoformat(start)
-    end_dt = datetime.fromisoformat(end)
-    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    try:
+        start_dt = dtparser.parse(start)
+        end_dt = dtparser.parse(end)
+    except Exception as e:
+        await ctx.send(f"Invalid date format: {e}")
+        return
 
-    messages = [m async for m in log_channel.history(limit=1000) if start_dt <= m.created_at <= end_dt]
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    messages = [m async for m in log_channel.history(limit=1000)]
+    messages = [m for m in messages if start_dt <= m.created_at <= end_dt]
     messages.sort(key=lambda m: m.created_at)
 
     logs = [extract_log_data(m) for m in messages if extract_log_data(m)]
@@ -128,11 +141,16 @@ async def oil_summary(ctx, start: str, end: str):
 
 @bot.command()
 async def trip_summary(ctx, start: str, end: str):
-    start_dt = datetime.fromisoformat(start)
-    end_dt = datetime.fromisoformat(end)
-    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    try:
+        start_dt = dtparser.parse(start)
+        end_dt = dtparser.parse(end)
+    except Exception as e:
+        await ctx.send(f"Invalid date format: {e}")
+        return
 
-    messages = [m async for m in log_channel.history(limit=1000) if start_dt <= m.created_at <= end_dt]
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    messages = [m async for m in log_channel.history(limit=1000)]
+    messages = [m for m in messages if start_dt <= m.created_at <= end_dt]
     messages.sort(key=lambda m: m.created_at)
 
     logs = [extract_log_data(m) for m in messages if extract_log_data(m)]
