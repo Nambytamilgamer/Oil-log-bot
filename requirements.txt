@@ -3,4 +3,5 @@ gspread
 oauth2client
 google-api-python-client
 pytz
+python-dateutil
 python-dotenv
