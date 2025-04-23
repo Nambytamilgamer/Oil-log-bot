@@ -1,4 +1,6 @@
 discord.py
-pytz
 gspread
 oauth2client
+google-api-python-client
+pytz
+python-dotenv
