@@ -41,17 +41,22 @@ async def log_to_sheet(msg):
 # Oil Summary Calculator
 def calculate_oil_summary(messages):
     total_taken = 0
+    messages = sorted(messages, key=lambda m: m.created_at)  # Sort oldest to newest
+
     for i in range(len(messages) - 1):
         try:
-            after = float(messages[i].content.split("Oil stock after :")[1].strip())
-            before = float(messages[i + 1].content.split("Oil stock before :")[1].strip())
+            before_msg = messages[i]
+            after_msg = messages[i + 1]
+
+            before = float(before_msg.content.split("Oil stock before :")[1].split("Oil stock after :")[0].strip())
+            after = float(after_msg.content.split("Oil stock after :")[1].strip())
+
             diff = before - after
             if diff > 0:
                 total_taken += diff
-        except:
+        except Exception as e:
             continue
     return total_taken
-
 # Trip Summary Calculator
 def calculate_trip_summary(messages):
     trip_counts = {}
@@ -74,7 +79,7 @@ async def daily_oil_summary():
         messages.append(msg)
         await log_to_sheet(msg)
 
-    messages = sorted(messages, key=lambda m: m.created_at, reverse=True)
+    messages = sorted(messages, key=lambda m: m.created_at)
     oil_taken = calculate_oil_summary(messages)
     await report_channel.send(f"**Daily Oil Summary (last 24 hrs)**:\nTotal Oil Taken: {oil_taken}L")
 
