@@ -6,6 +6,8 @@ import pytz
 import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from io import BytesIO
+from fpdf import FPDF
 
 # ENV
 TOKEN = os.getenv("TOKEN")
@@ -145,39 +147,63 @@ async def bonus_summary(ctx, start: str, end: str):
 @bot.command()
 async def final_calc(ctx, start: str, end: str):
     try:
-        start_time = datetime.fromisoformat(start)
-        end_time = datetime.fromisoformat(end)
-        channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
+        # Parse times
+        start_dt = datetime.fromisoformat(start)
+        end_dt   = datetime.fromisoformat(end)
+        channel  = bot.get_channel(OIL_LOG_CHANNEL_ID)
 
-        messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
-        messages = sorted(messages, key=lambda m: m.created_at, reverse=True)
+        # Fetch & sort messages
+        msgs = [m async for m in channel.history(after=start_dt, before=end_dt, limit=None)]
+        msgs.sort(key=lambda m: m.created_at)
 
-        # Trip and oil calculations
-        trip_counts = calculate_trip_summary(messages)
-        total_trips = sum(trip_counts.values())
-        trip_value = total_trips * 640000
+        # Compute trip counts & oil moved
+        trip_counts  = calculate_trip_summary(msgs)
+        total_trips  = sum(trip_counts.values())
+        trip_value   = total_trips * 640_000
 
-        total_oil = calculate_oil_summary(messages)
-        oil_value = (total_oil / 3000) * 480000
+        total_oil    = calculate_oil_summary(msgs)
+        oil_value    = (total_oil / 3000) * 480_000
 
-        total_amount = trip_value + oil_value
+        total_amount    = trip_value + oil_value
+        bonus_total     = total_trips * 288_000
+        remaining       = total_amount - bonus_total
+        forty_percent   = remaining * 0.4
 
-        bonus_total = total_trips * 288000
-        remaining_amount = total_amount - bonus_total
-        forty_percent = remaining_amount * 0.4
+        # Build PDF
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(0, 10, "Final Calculation Report", ln=True, align="C")
+        pdf.ln(5)
+        pdf.set_font("Arial", size=12)
+        pdf.cell(0, 8, f"Period: {start} to {end}", ln=True)
+        pdf.ln(5)
 
-        msg = (
-            f"**Final Calculation from {start} to {end}**\n"
-            f"Trips: {total_trips} x 640000 = ₹{trip_value}\n"
-            f"Oil: {total_oil}L → ({total_oil}/3000) x 480000 = ₹{oil_value}\n"
-            f"Total: ₹{total_amount}\n"
-            f"Minus Bonus (₹{bonus_total}) = ₹{remaining_amount}\n"
-            f"40% of Remaining: ₹{forty_percent}"
-        )
-        await ctx.send(msg)
+        pdf.cell(0, 8, "Trip Summary:", ln=True)
+        for user, cnt in trip_counts.items():
+            pdf.cell(0, 8, f"  • {user}: {cnt} trips → ₹{cnt * 288_000}", ln=True)
+        pdf.ln(5)
+
+        pdf.cell(0, 8, f"Total Trips: {total_trips} → ₹{trip_value}", ln=True)
+        pdf.cell(0, 8, f"Total Oil Taken: {total_oil} L → Value: ₹{oil_value:.2f}", ln=True)
+        pdf.cell(0, 8, f"Combined Amount: ₹{total_amount:.2f}", ln=True)
+        pdf.cell(0, 8, f"Total Bonus Deducted: ₹{bonus_total}", ln=True)
+        pdf.cell(0, 8, f"Remaining Amount: ₹{remaining:.2f}", ln=True)
+        pdf.cell(0, 8, f"40% of Remaining: ₹{forty_percent:.2f}", ln=True)
+
+        # Output to Discord DM
+        buffer = BytesIO()
+        pdf.output(buffer)
+        buffer.seek(0)
+        file = discord.File(fp=buffer, filename="final_report.pdf")
+        dm = await ctx.author.create_dm()
+        await dm.send("Here’s your final calculation report:", file=file)
+
+        # Optional: confirm in channel
+        await ctx.send(f"{ctx.author.mention}, I’ve DM’d you the PDF report!")
+
     except Exception as e:
-        await ctx.send(f"Error: {e}")
-        
+        await ctx.send(f"❌ Error in final_calc: {e}")
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
