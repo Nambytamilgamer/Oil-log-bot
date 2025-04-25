@@ -116,6 +116,32 @@ async def trip_summary(ctx, start: str, end: str):
     except Exception as e:
         await ctx.send(f"Error: {e}")
 
+@bot.command()
+async def bonus_summary(ctx, start: str, end: str):
+    try:
+        start_time = datetime.fromisoformat(start)
+        end_time = datetime.fromisoformat(end)
+        channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
+
+        messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
+        trip_counts = calculate_trip_summary(messages)
+
+        if not trip_counts:
+            await ctx.send("No trips found in the given time range.")
+            return
+
+        bonus_msg = ""
+        total_bonus = 0
+        for person, trips in trip_counts.items():
+            bonus = trips * 288000
+            total_bonus += bonus
+            bonus_msg += f"{person}: {trips} trips × ₹288000 = ₹{bonus}\n"
+
+        bonus_msg += f"\n**Total Bonus Payout: ₹{total_bonus}**"
+        await ctx.send(f"**Bonus Summary:**\nFrom {start} to {end}\n{bonus_msg}")
+    except Exception as e:
+        await ctx.send(f"Error: {e}")
+        
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
