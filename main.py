@@ -141,6 +141,42 @@ async def bonus_summary(ctx, start: str, end: str):
         await ctx.send(f"**Bonus Summary:**\nFrom {start} to {end}\n{bonus_msg}")
     except Exception as e:
         await ctx.send(f"Error: {e}")
+
+@bot.command()
+async def final_calc(ctx, start: str, end: str):
+    try:
+        start_time = datetime.fromisoformat(start)
+        end_time = datetime.fromisoformat(end)
+        channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
+
+        messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
+        messages = sorted(messages, key=lambda m: m.created_at, reverse=True)
+
+        # Trip and oil calculations
+        trip_counts = calculate_trip_summary(messages)
+        total_trips = sum(trip_counts.values())
+        trip_value = total_trips * 640000
+
+        total_oil = calculate_oil_summary(messages)
+        oil_value = (total_oil / 3000) * 480000
+
+        total_amount = trip_value + oil_value
+
+        bonus_total = total_trips * 288000
+        remaining_amount = total_amount - bonus_total
+        forty_percent = remaining_amount * 0.4
+
+        msg = (
+            f"**Final Calculation from {start} to {end}**\n"
+            f"Trips: {total_trips} x 640000 = ₹{trip_value}\n"
+            f"Oil: {total_oil}L → ({total_oil}/3000) x 480000 = ₹{oil_value}\n"
+            f"Total: ₹{total_amount}\n"
+            f"Minus Bonus (₹{bonus_total}) = ₹{remaining_amount}\n"
+            f"40% of Remaining: ₹{forty_percent}"
+        )
+        await ctx.send(msg)
+    except Exception as e:
+        await ctx.send(f"Error: {e}")
         
 @bot.event
 async def on_ready():
