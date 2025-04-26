@@ -142,41 +142,6 @@ async def bonus_summary(ctx, start: str, end: str):
     except Exception as e:
         await ctx.send(f"Error: {e}")
 
-@bot.command()
-async def final_calc(ctx, start: str, end: str):
-    try:
-        start_time = datetime.fromisoformat(start)
-        end_time = datetime.fromisoformat(end)
-        channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
-
-        messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
-        messages = sorted(messages, key=lambda m: m.created_at, reverse=True)
-
-        # Trip and oil calculations
-        trip_counts = calculate_trip_summary(messages)
-        total_trips = sum(trip_counts.values())
-        trip_value = total_trips * 640000
-
-        total_oil = calculate_oil_summary(messages)
-        oil_value = (total_oil / 3000) * 480000
-
-        total_amount = trip_value + oil_value
-
-        bonus_total = total_trips * 288000
-        remaining_amount = total_amount - bonus_total
-        forty_percent = remaining_amount * 0.4
-
-        msg = (
-            f"**Final Calculation from {start} to {end}**\n"
-            f"Trips: {total_trips} x 640000 = â‚¹{trip_value}\n"
-            f"Oil: {total_oil}L â†’ ({total_oil}/3000) x 480000 = â‚¹{oil_value}\n"
-            f"Total: â‚¹{total_amount}\n"
-            f"Minus Bonus (â‚¹{bonus_total}) = â‚¹{remaining_amount}\n"
-            f"40% of Remaining: â‚¹{forty_percent}"
-        )
-        await ctx.send(msg)
-    except Exception as e:
-        await ctx.send(f"Error: {e}")
 
 from fpdf import FPDF
 
