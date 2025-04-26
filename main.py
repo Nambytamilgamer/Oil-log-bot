@@ -185,11 +185,11 @@ async def final_calc(ctx, start: str, end: str):
         pdf.cell(200, 10, txt=f"Total Oil Taken: {oil_taken}L", ln=True, align='L')
         pdf.ln(10)
 
-        pdf.cell(200, 10, txt=f"Trip Bonus (640000 per trip): {trip_bonus:,} ₹", ln=True, align='L')
-        pdf.cell(200, 10, txt=f"Oil Bonus (480000 per 3000L): {oil_bonus:,.2f} ₹", ln=True, align='L')
-        pdf.cell(200, 10, txt=f"Total Bonus Amount: {total_amount:,.2f} ₹", ln=True, align='L')
-        pdf.cell(200, 10, txt=f"After Trip Bonus Deduction: {bonus_deducted_amount:,.2f} ₹", ln=True, align='L')
-        pdf.cell(200, 10, txt=f"40% Share Amount: {share_40_percent:,.2f} ₹", ln=True, align='L')
+        pdf.cell(200, 10, txt=f"Trip Bonus (640000 per trip): {trip_bonus:,} INR", ln=True, align='L')
+        pdf.cell(200, 10, txt=f"Oil Bonus (480000 per 3000L): {oil_bonus:,.2f} INR", ln=True, align='L')
+        pdf.cell(200, 10, txt=f"Total Bonus Amount: {total_amount:,.2f} INR", ln=True, align='L')
+        pdf.cell(200, 10, txt=f"After Trip Bonus Deduction: {bonus_deducted_amount:,.2f} INR", ln=True, align='L')
+        pdf.cell(200, 10, txt=f"40% Share Amount: {share_40_percent:,.2f} INR", ln=True, align='L')
 
         # Save and send
         output_file = f"/tmp/final_calc_{ctx.author.id}.pdf"
@@ -200,6 +200,7 @@ async def final_calc(ctx, start: str, end: str):
         
     except Exception as e:
         await ctx.send(f"Error: {e}")
+
 
         
 @bot.event
