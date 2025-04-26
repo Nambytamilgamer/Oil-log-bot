@@ -177,6 +177,65 @@ async def final_calc(ctx, start: str, end: str):
         await ctx.send(msg)
     except Exception as e:
         await ctx.send(f"Error: {e}")
+
+from fpdf import FPDF
+
+@bot.command()
+async def final_calc(ctx, start: str, end: str):
+    try:
+        start_time = datetime.fromisoformat(start)
+        end_time = datetime.fromisoformat(end)
+        channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
+
+        messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
+        messages = sorted(messages, key=lambda m: m.created_at, reverse=True)
+
+        oil_taken = calculate_oil_summary(messages)
+        trip_counts = calculate_trip_summary(messages)
+
+        # Calculations
+        total_trips = sum(trip_counts.values())
+        trip_bonus = total_trips * 640000
+        oil_bonus = (oil_taken / 3000) * 480000
+        total_amount = trip_bonus + oil_bonus
+        bonus_deducted_amount = total_amount - trip_bonus
+        share_40_percent = (bonus_deducted_amount) * 0.4
+
+        # Create PDF
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+
+        pdf.cell(200, 10, txt="Final Oil and Trip Calculation Report", ln=True, align='C')
+        pdf.ln(10)
+        pdf.cell(200, 10, txt=f"From {start} to {end}", ln=True, align='L')
+        pdf.ln(10)
+
+        pdf.cell(200, 10, txt="Trip Counts:", ln=True, align='L')
+        for member, trips in trip_counts.items():
+            pdf.cell(200, 10, txt=f"{member}: {trips} trips", ln=True, align='L')
+
+        pdf.ln(10)
+        pdf.cell(200, 10, txt=f"Total Trips: {total_trips}", ln=True, align='L')
+        pdf.cell(200, 10, txt=f"Total Oil Taken: {oil_taken}L", ln=True, align='L')
+        pdf.ln(10)
+
+        pdf.cell(200, 10, txt=f"Trip Bonus (640000 per trip): {trip_bonus:,} ₹", ln=True, align='L')
+        pdf.cell(200, 10, txt=f"Oil Bonus (480000 per 3000L): {oil_bonus:,.2f} ₹", ln=True, align='L')
+        pdf.cell(200, 10, txt=f"Total Bonus Amount: {total_amount:,.2f} ₹", ln=True, align='L')
+        pdf.cell(200, 10, txt=f"After Trip Bonus Deduction: {bonus_deducted_amount:,.2f} ₹", ln=True, align='L')
+        pdf.cell(200, 10, txt=f"40% Share Amount: {share_40_percent:,.2f} ₹", ln=True, align='L')
+
+        # Save and send
+        output_file = f"/tmp/final_calc_{ctx.author.id}.pdf"
+        pdf.output(output_file)
+
+        await ctx.author.send(file=discord.File(output_file))
+        await ctx.send(f"✅ Final calculation completed! Report sent to your DM, {ctx.author.mention}")
+        
+    except Exception as e:
+        await ctx.send(f"Error: {e}")
+
         
 @bot.event
 async def on_ready():
