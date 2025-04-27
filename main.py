@@ -6,6 +6,10 @@ import pytz
 import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import io
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from discord import File
 
 # ENV
 TOKEN = os.getenv("TOKEN")
@@ -15,6 +19,7 @@ GOOGLE_CREDS_JSON = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
 # IDs
 OIL_LOG_CHANNEL_ID = 1347225637949149285
 REPORT_CHANNEL_ID = 1347192193453916171
+OWNER_ID = 964098780557373550  # Your ID here
 
 # Bot setup
 intents = discord.Intents.default()
@@ -26,6 +31,11 @@ scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(GOOGLE_CREDS_JSON, scope)
 gc = gspread.authorize(credentials)
 sheet = gc.open_by_key(GOOGLE_SHEET_ID).sheet1
+
+# Allow commands only for you
+@bot.check
+async def only_owner(ctx):
+    return ctx.author.id == OWNER_ID
 
 # Log messages to Google Sheet
 async def log_to_sheet(msg):
@@ -41,22 +51,20 @@ async def log_to_sheet(msg):
 # Oil Summary Calculator
 def calculate_oil_summary(messages):
     total_taken = 0
-    messages = sorted(messages, key=lambda m: m.created_at)  # Sort oldest to newest
-
+    messages = sorted(messages, key=lambda m: m.created_at)
     for i in range(len(messages) - 1):
         try:
             before_msg = messages[i]
             after_msg = messages[i + 1]
-
             before = float(before_msg.content.split("Oil stock before :")[1].split("Oil stock after :")[0].strip())
             after = float(after_msg.content.split("Oil stock after :")[1].strip())
-
             diff = before - after
             if diff > 0:
                 total_taken += diff
-        except Exception as e:
+        except Exception:
             continue
     return total_taken
+
 # Trip Summary Calculator
 def calculate_trip_summary(messages):
     trip_counts = {}
@@ -67,7 +75,7 @@ def calculate_trip_summary(messages):
     return trip_counts
 
 # Daily Summary Auto Task
-@tasks.loop(time=dtime(hour=18, minute=00, tzinfo=pytz.timezone("Asia/Kolkata")))
+@tasks.loop(time=dtime(hour=18, minute=0, tzinfo=pytz.timezone("Asia/Kolkata")))
 async def daily_oil_summary():
     channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
     report_channel = bot.get_channel(REPORT_CHANNEL_ID)
@@ -83,7 +91,7 @@ async def daily_oil_summary():
     oil_taken = calculate_oil_summary(messages)
     await report_channel.send(f"**Daily Oil Summary (last 24 hrs)**:\nTotal Oil Taken: {oil_taken}L")
 
-# Command-based oil summary
+# Commands
 @bot.command()
 async def oil_summary(ctx, start: str, end: str):
     try:
@@ -98,7 +106,6 @@ async def oil_summary(ctx, start: str, end: str):
     except Exception as e:
         await ctx.send(f"Error: {e}")
 
-# Command-based trip summary
 @bot.command()
 async def trip_summary(ctx, start: str, end: str):
     try:
@@ -142,11 +149,6 @@ async def bonus_summary(ctx, start: str, end: str):
     except Exception as e:
         await ctx.send(f"Error: {e}")
 
-import io
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from discord import File
-
 @bot.command()
 async def final_calc(ctx, start: str, end: str):
     try:
@@ -176,7 +178,6 @@ async def final_calc(ctx, start: str, end: str):
             except:
                 continue
 
-        # Calculations
         total_trips = sum(trip_counts.values())
         total_trip_amount = total_trips * 640000
 
@@ -193,8 +194,8 @@ async def final_calc(ctx, start: str, end: str):
         buffer = io.BytesIO()
         p = canvas.Canvas(buffer, pagesize=letter)
         width, height = letter
-
         y = height - 50
+
         p.setFont("Helvetica-Bold", 18)
         p.drawString(200, y, "Final Calculation Report")
         y -= 40
@@ -244,15 +245,12 @@ async def final_calc(ctx, start: str, end: str):
         p.save()
         buffer.seek(0)
 
-        # Send the PDF as DM
         await ctx.author.send(file=File(buffer, filename="final_report.pdf"))
         await ctx.send("✅ Final calculation report sent to your DM!")
-
     except Exception as e:
         await ctx.send(f"❌ Error: {e}")
 
-
-        
+# Events
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
@@ -268,7 +266,6 @@ async def on_message(message):
 async def on_message_edit(before, after):
     if after.channel.id == OIL_LOG_CHANNEL_ID and not after.author.bot:
         try:
-            # Find the original row in Google Sheet and update it
             cell = sheet.find(before.created_at.strftime('%Y-%m-%d %H:%M:%S'))
             if cell:
                 sheet.update_cell(cell.row, 2, after.author.name)
