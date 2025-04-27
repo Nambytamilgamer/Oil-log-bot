@@ -142,6 +142,25 @@ async def bonus_summary(ctx, start: str, end: str):
     except Exception as e:
         await ctx.send(f"Error: {e}")
 
+from fpdf import FPDF
+
+class PDF(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 16)
+        self.cell(0, 10, "Oil and Trip Summary Report", ln=True, align='C')
+        self.ln(10)
+        self.line(10, 20, 200, 20)
+
+    def chapter_title(self, title):
+        self.set_font('Arial', 'B', 14)
+        self.cell(0, 10, title, ln=True)
+        self.ln(4)
+
+    def chapter_content(self, content):
+        self.set_font('Arial', '', 12)
+        self.multi_cell(0, 8, content)
+        self.ln(5)
+
 @bot.command()
 async def final_calc(ctx, start: str, end: str):
     try:
@@ -152,31 +171,50 @@ async def final_calc(ctx, start: str, end: str):
         messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
         messages = sorted(messages, key=lambda m: m.created_at, reverse=True)
 
-        # Trip and oil calculations
+        # Calculate oil taken
+        total_taken = calculate_oil_summary(messages)
+
+        # Calculate trips
         trip_counts = calculate_trip_summary(messages)
         total_trips = sum(trip_counts.values())
-        trip_value = total_trips * 640000
 
-        total_oil = calculate_oil_summary(messages)
-        oil_value = (total_oil / 3000) * 480000
-
-        total_amount = trip_value + oil_value
-
+        # Calculations
+        trip_bonus = total_trips * 640000
+        oil_bonus = (total_taken / 3000) * 480000
+        total_amount = trip_bonus + oil_bonus
         bonus_total = total_trips * 288000
-        remaining_amount = total_amount - bonus_total
-        forty_percent = remaining_amount * 0.4
+        after_bonus_total = total_amount - bonus_total
+        forty_percent_share = after_bonus_total * 0.4
 
-        msg = (
-            f"**Final Calculation from {start} to {end}**\n"
-            f"Trips: {total_trips} x 640000 = ₹{trip_value}\n"
-            f"Oil: {total_oil}L → ({total_oil}/3000) x 480000 = ₹{oil_value}\n"
-            f"Total: ₹{total_amount}\n"
-            f"Minus Bonus (₹{bonus_total}) = ₹{remaining_amount}\n"
-            f"40% of Remaining: ₹{forty_percent}"
-        )
-        await ctx.send(msg)
+        # --- Create the PDF ---
+        pdf = PDF()
+        pdf.add_page()
+
+        pdf.chapter_title(f"Period: {start} to {end}")
+
+        pdf.chapter_title("Trips by Members:")
+        for member, trips in trip_counts.items():
+            pdf.chapter_content(f"{member}: {trips} trips")
+
+        pdf.chapter_title("Summary Calculations:")
+        pdf.chapter_content(f"Total Oil Taken: {total_taken:.2f} L")
+        pdf.chapter_content(f"Total Trips: {total_trips}")
+        pdf.chapter_content(f"Trip Bonus (Rs): {trip_bonus:,.2f}")
+        pdf.chapter_content(f"Oil Bonus (Rs): {oil_bonus:,.2f}")
+        pdf.chapter_content(f"Total Amount (Rs): {total_amount:,.2f}")
+        pdf.chapter_content(f"Bonus Deducted (Rs): {bonus_total:,.2f}")
+        pdf.chapter_content(f"After Bonus Total (Rs): {after_bonus_total:,.2f}")
+        pdf.chapter_content(f"40% Share (Rs): {forty_percent_share:,.2f}")
+
+        pdf_file = "summary_report.pdf"
+        pdf.output(pdf_file)
+
+        await ctx.author.send(file=discord.File(pdf_file))
+        await ctx.send("✅ Stylish Final Report sent to your DM!")
+
     except Exception as e:
         await ctx.send(f"Error: {e}")
+
         
 @bot.event
 async def on_ready():
