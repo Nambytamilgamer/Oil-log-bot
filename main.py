@@ -264,5 +264,17 @@ async def on_message(message):
         await log_to_sheet(message)
     await bot.process_commands(message)
 
+@bot.event
+async def on_message_edit(before, after):
+    if after.channel.id == OIL_LOG_CHANNEL_ID and not after.author.bot:
+        try:
+            # Find the original row in Google Sheet and update it
+            cell = sheet.find(before.created_at.strftime('%Y-%m-%d %H:%M:%S'))
+            if cell:
+                sheet.update_cell(cell.row, 2, after.author.name)
+                sheet.update_cell(cell.row, 3, after.content)
+        except Exception as e:
+            print("Error updating sheet for edited message:", e)
+
 # Run the bot
 bot.run(TOKEN)
