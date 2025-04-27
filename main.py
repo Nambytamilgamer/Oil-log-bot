@@ -142,24 +142,10 @@ async def bonus_summary(ctx, start: str, end: str):
     except Exception as e:
         await ctx.send(f"Error: {e}")
 
-from fpdf import FPDF
-
-class PDF(FPDF):
-    def header(self):
-        self.set_font('Arial', 'B', 16)
-        self.cell(0, 10, "Oil and Trip Summary Report", ln=True, align='C')
-        self.ln(10)
-        self.line(10, 20, 200, 20)
-
-    def chapter_title(self, title):
-        self.set_font('Arial', 'B', 14)
-        self.cell(0, 10, title, ln=True)
-        self.ln(4)
-
-    def chapter_content(self, content):
-        self.set_font('Arial', '', 12)
-        self.multi_cell(0, 8, content)
-        self.ln(5)
+import io
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from discord import File
 
 @bot.command()
 async def final_calc(ctx, start: str, end: str):
@@ -171,49 +157,100 @@ async def final_calc(ctx, start: str, end: str):
         messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
         messages = sorted(messages, key=lambda m: m.created_at, reverse=True)
 
-        # Calculate oil taken
-        total_taken = calculate_oil_summary(messages)
+        # Calculate trip counts
+        trip_counts = {}
+        for msg in messages:
+            author = msg.author.name
+            if "Trip" in msg.content:
+                trip_counts[author] = trip_counts.get(author, 0) + 1
 
-        # Calculate trips
-        trip_counts = calculate_trip_summary(messages)
-        total_trips = sum(trip_counts.values())
+        # Calculate total oil taken
+        total_oil = 0
+        for i in range(len(messages) - 1):
+            try:
+                after = float(messages[i].content.split("Oil stock after :")[1].strip())
+                before = float(messages[i + 1].content.split("Oil stock before :")[1].strip())
+                diff = before - after
+                if diff > 0:
+                    total_oil += diff
+            except:
+                continue
 
         # Calculations
-        trip_bonus = total_trips * 640000
-        oil_bonus = (total_taken / 3000) * 480000
-        total_amount = trip_bonus + oil_bonus
-        bonus_total = total_trips * 288000
-        after_bonus_total = total_amount - bonus_total
+        total_trips = sum(trip_counts.values())
+        total_trip_amount = total_trips * 640000
+
+        member_bonuses = {k: v * 288000 for k, v in trip_counts.items()}
+        total_bonus_amount = sum(member_bonuses.values())
+
+        oil_bill_amount = (total_oil / 3000) * 480000
+        grand_total = total_trip_amount + oil_bill_amount
+
+        after_bonus_total = grand_total - total_bonus_amount
         forty_percent_share = after_bonus_total * 0.4
 
-        # --- Create the PDF ---
-        pdf = PDF()
-        pdf.add_page()
+        # Create PDF
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=letter)
+        width, height = letter
 
-        pdf.chapter_title(f"Period: {start} to {end}")
+        y = height - 50
+        p.setFont("Helvetica-Bold", 18)
+        p.drawString(200, y, "Final Calculation Report")
+        y -= 40
 
-        pdf.chapter_title("Trips by Members:")
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(50, y, "Trip Counts:")
+        y -= 25
+
+        p.setFont("Helvetica", 12)
         for member, trips in trip_counts.items():
-            pdf.chapter_content(f"{member}: {trips} trips")
+            p.drawString(60, y, f"{member}: {trips} trips")
+            y -= 20
 
-        pdf.chapter_title("Summary Calculations:")
-        pdf.chapter_content(f"Total Oil Taken: {total_taken:.2f} L")
-        pdf.chapter_content(f"Total Trips: {total_trips}")
-        pdf.chapter_content(f"Trip Bonus (Rs): {trip_bonus:,.2f}")
-        pdf.chapter_content(f"Oil Bonus (Rs): {oil_bonus:,.2f}")
-        pdf.chapter_content(f"Total Amount (Rs): {total_amount:,.2f}")
-        pdf.chapter_content(f"Bonus Deducted (Rs): {bonus_total:,.2f}")
-        pdf.chapter_content(f"After Bonus Total (Rs): {after_bonus_total:,.2f}")
-        pdf.chapter_content(f"40% Share (Rs): {forty_percent_share:,.2f}")
+        y -= 20
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(50, y, "Bonus Amounts:")
+        y -= 25
 
-        pdf_file = "summary_report.pdf"
-        pdf.output(pdf_file)
+        p.setFont("Helvetica", 12)
+        for member, bonus in member_bonuses.items():
+            p.drawString(60, y, f"{member}: {bonus:,} units")
+            y -= 20
 
-        await ctx.author.send(file=discord.File(pdf_file))
-        await ctx.send("✅ Stylish Final Report sent to your DM!")
+        y -= 20
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(50, y, "Summary:")
+        y -= 25
+
+        p.setFont("Helvetica", 12)
+        p.drawString(60, y, f"Total Oil Taken: {total_oil} Liters")
+        y -= 20
+        p.drawString(60, y, f"Total Trips: {total_trips}")
+        y -= 20
+        p.drawString(60, y, f"Trip Amount (640k/trip): {total_trip_amount:,} units")
+        y -= 20
+        p.drawString(60, y, f"Oil Bill Amount: {oil_bill_amount:,.2f} units")
+        y -= 20
+        p.drawString(60, y, f"Grand Total: {grand_total:,.2f} units")
+        y -= 20
+        p.drawString(60, y, f"Total Bonus Amount: {total_bonus_amount:,} units")
+        y -= 20
+        p.drawString(60, y, f"After Bonus Deduction: {after_bonus_total:,.2f} units")
+        y -= 20
+        p.drawString(60, y, f"40% Share: {forty_percent_share:,.2f} units")
+
+        p.showPage()
+        p.save()
+        buffer.seek(0)
+
+        # Send the PDF as DM
+        await ctx.author.send(file=File(buffer, filename="final_report.pdf"))
+        await ctx.send("✅ Final calculation report sent to your DM!")
 
     except Exception as e:
-        await ctx.send(f"Error: {e}")
+        await ctx.send(f"❌ Error: {e}")
+
 
         
 @bot.event
