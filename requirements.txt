@@ -3,3 +3,4 @@ gspread
 oauth2client
 pytz
 fpdf2
+reportlab
