@@ -6,13 +6,12 @@ import pytz
 import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import re
 import io
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from discord import File
 
-# ENV variables
+# ENV
 TOKEN = os.getenv("TOKEN")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 GOOGLE_CREDS_JSON = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
@@ -20,7 +19,7 @@ GOOGLE_CREDS_JSON = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
 # IDs
 OIL_LOG_CHANNEL_ID = 1347225637949149285
 REPORT_CHANNEL_ID = 1347192193453916171
-ALLOWED_USER_IDS = {964098780557373550, 490600486794166308}  # <-- Your IDs
+OWNER_ID = 964098780557373550  # Your ID here
 
 # Bot setup
 intents = discord.Intents.default()
@@ -33,10 +32,12 @@ credentials = ServiceAccountCredentials.from_json_keyfile_dict(GOOGLE_CREDS_JSON
 gc = gspread.authorize(credentials)
 sheet = gc.open_by_key(GOOGLE_SHEET_ID).sheet1
 
-# Helpers
-def is_allowed(ctx):
-    return ctx.author.id in ALLOWED_USER_IDS
+# Allow commands only for you
+@bot.check
+async def only_owner(ctx):
+    return ctx.author.id == OWNER_ID
 
+# Log messages to Google Sheet
 async def log_to_sheet(msg):
     try:
         sheet.append_row([
@@ -47,39 +48,33 @@ async def log_to_sheet(msg):
     except Exception as e:
         print("Error logging to sheet:", e)
 
+# Oil Summary Calculator
 def calculate_oil_summary(messages):
     total_taken = 0
     messages = sorted(messages, key=lambda m: m.created_at)
-    stocks = []
-    for msg in messages:
+    for i in range(len(messages) - 1):
         try:
-            before_match = re.search(r"oil stock before:\s*([0-9]+)", msg.content, re.IGNORECASE)
-            after_match = re.search(r"oil stock after:\s*([0-9]+)", msg.content, re.IGNORECASE)
-            if before_match and after_match:
-                before = int(before_match.group(1))
-                after = int(after_match.group(1))
-                stocks.append({'before': before, 'after': after})
-        except Exception as e:
-            print(f"Error parsing oil stock: {e}")
+            before_msg = messages[i]
+            after_msg = messages[i + 1]
+            before = float(before_msg.content.split("Oil stock before :")[1].split("Oil stock after :")[0].strip())
+            after = float(after_msg.content.split("Oil stock after :")[1].strip())
+            diff = before - after
+            if diff > 0:
+                total_taken += diff
+        except Exception:
             continue
-
-    for i in range(len(stocks) - 1):
-        after_current = stocks[i]['after']
-        before_next = stocks[i + 1]['before']
-        diff = after_current - before_next
-        if diff > 0:
-            total_taken += diff
-
     return total_taken
 
+# Trip Summary Calculator
 def calculate_trip_summary(messages):
     trip_counts = {}
     for msg in messages:
+        author = msg.author.name
         if "Trip" in msg.content:
-            trip_counts[msg.author.name] = trip_counts.get(msg.author.name, 0) + 1
+            trip_counts[author] = trip_counts.get(author, 0) + 1
     return trip_counts
 
-# Background task
+# Daily Summary Auto Task
 @tasks.loop(time=dtime(hour=18, minute=0, tzinfo=pytz.timezone("Asia/Kolkata")))
 async def daily_oil_summary():
     channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
@@ -87,85 +82,59 @@ async def daily_oil_summary():
     now = datetime.now(pytz.timezone("Asia/Kolkata"))
     yesterday = now - timedelta(days=1)
 
-    messages = [msg async for msg in channel.history(after=yesterday, before=now)]
-    oil_taken = calculate_oil_summary(messages)
-    await report_channel.send(f"**Daily Oil Summary (last 24 hrs)**:\nTotal Oil Taken: {oil_taken} L")
+    messages = []
+    async for msg in channel.history(after=yesterday, before=now, limit=None):
+        messages.append(msg)
+        await log_to_sheet(msg)
 
-# --- Commands ---
+    messages = sorted(messages, key=lambda m: m.created_at)
+    oil_taken = calculate_oil_summary(messages)
+    await report_channel.send(f"**Daily Oil Summary (last 24 hrs)**:\nTotal Oil Taken: {oil_taken}L")
+
+# Commands
 @bot.command()
 async def oil_summary(ctx, start: str, end: str):
-    if not is_allowed(ctx):
-        await ctx.send("🚫 No permission.")
-        return
     try:
         start_time = datetime.fromisoformat(start)
         end_time = datetime.fromisoformat(end)
-        if start_time >= end_time:
-            await ctx.send("❌ Start time must be before end time.")
-            return
-
         channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
+
         messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
-        messages = sorted(messages, key=lambda m: m.created_at)
-
-        existing_logs = sheet.col_values(1)
-        for msg in messages:
-            if msg.created_at.strftime('%Y-%m-%d %H:%M:%S') not in existing_logs:
-                await log_to_sheet(msg)
-
-        total_oil = calculate_oil_summary(messages)
-
-        embed = discord.Embed(
-            title="🛢️ Oil Summary Report",
-            description=f"**Date Range:**\n`{start}` ➔ `{end}`",
-            color=discord.Color.blue()
-        )
-        embed.add_field(name="Total Oil Taken", value=f"**{total_oil} Liters**", inline=False)
-        embed.set_footer(text="Requested by " + ctx.author.name, icon_url=ctx.author.avatar.url if ctx.author.avatar else None)
-
-        await ctx.send(embed=embed)
+        messages = sorted(messages, key=lambda m: m.created_at, reverse=True)
+        oil_taken = calculate_oil_summary(messages)
+        await ctx.send(f"**Oil Summary:**\nFrom {start} to {end}\nTotal Oil Taken: {oil_taken}L")
     except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
+        await ctx.send(f"Error: {e}")
 
 @bot.command()
 async def trip_summary(ctx, start: str, end: str):
-    if not is_allowed(ctx):
-        await ctx.send("🚫 No permission.")
-        return
     try:
         start_time = datetime.fromisoformat(start)
         end_time = datetime.fromisoformat(end)
-        if start_time >= end_time:
-            await ctx.send("❌ Start time must be before end time.")
-            return
-
         channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
+
         messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
         trip_counts = calculate_trip_summary(messages)
-
-        result = "\n".join(f"{k}: {v} trips" for k, v in trip_counts.items()) if trip_counts else "No trips found."
+        if trip_counts:
+            result = "\n".join(f"{k}: {v} trips" for k, v in trip_counts.items())
+        else:
+            result = "No trips found."
         await ctx.send(f"**Trip Summary:**\nFrom {start} to {end}\n{result}")
     except Exception as e:
         await ctx.send(f"Error: {e}")
 
 @bot.command()
 async def bonus_summary(ctx, start: str, end: str):
-    if not is_allowed(ctx):
-        await ctx.send("🚫 No permission.")
-        return
     try:
         start_time = datetime.fromisoformat(start)
         end_time = datetime.fromisoformat(end)
-        if start_time >= end_time:
-            await ctx.send("❌ Start time must be before end time.")
-            return
-
         channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
+
         messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
         trip_counts = calculate_trip_summary(messages)
 
         if not trip_counts:
-            await ctx.send("No trips found in the given range.")
+            await ctx.send("No trips found in the given time range.")
             return
 
         bonus_msg = ""
@@ -175,47 +144,53 @@ async def bonus_summary(ctx, start: str, end: str):
             total_bonus += bonus
             bonus_msg += f"{person}: {trips} trips × ₹288000 = ₹{bonus}\n"
 
-        bonus_msg += f"\n**Total Bonus: ₹{total_bonus}**"
+        bonus_msg += f"\n**Total Bonus Payout: ₹{total_bonus}**"
         await ctx.send(f"**Bonus Summary:**\nFrom {start} to {end}\n{bonus_msg}")
     except Exception as e:
         await ctx.send(f"Error: {e}")
 
 @bot.command()
 async def final_calc(ctx, start: str, end: str):
-    if not is_allowed(ctx):
-        await ctx.send("🚫 No permission.")
-        return
     try:
         start_time = datetime.fromisoformat(start)
         end_time = datetime.fromisoformat(end)
-        if start_time >= end_time:
-            await ctx.send("❌ Start time must be before end time.")
-            return
-
         channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
-        messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
-        messages = sorted(messages, key=lambda m: m.created_at)
 
-        trip_counts = calculate_trip_summary(messages)
+        messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
+        messages = sorted(messages, key=lambda m: m.created_at, reverse=True)
+
+        # Calculate trip counts
+        trip_counts = {}
+        for msg in messages:
+            author = msg.author.name
+            if "Trip" in msg.content:
+                trip_counts[author] = trip_counts.get(author, 0) + 1
+
+        # Calculate total oil taken
+        total_oil = 0
+        for i in range(len(messages) - 1):
+            try:
+                after = float(messages[i].content.split("Oil stock after :")[1].strip())
+                before = float(messages[i + 1].content.split("Oil stock before :")[1].strip())
+                diff = before - after
+                if diff > 0:
+                    total_oil += diff
+            except:
+                continue
+
         total_trips = sum(trip_counts.values())
         total_trip_amount = total_trips * 640000
-        total_oil = calculate_oil_summary(messages)
 
         member_bonuses = {k: v * 288000 for k, v in trip_counts.items()}
         total_bonus_amount = sum(member_bonuses.values())
 
         oil_bill_amount = (total_oil / 3000) * 480000
         grand_total = total_trip_amount + oil_bill_amount
+
         after_bonus_total = grand_total - total_bonus_amount
+        forty_percent_share = after_bonus_total * 0.4
 
-        shares = {
-            "Jyothika (40%)": after_bonus_total * 0.40,
-            "Market (30%)": after_bonus_total * 0.30,
-            "Raja Rathinam (20%)": after_bonus_total * 0.20,
-            "Company & Community Needs (10%)": after_bonus_total * 0.10,
-        }
-
-        # Generate PDF
+        # Create PDF
         buffer = io.BytesIO()
         p = canvas.Canvas(buffer, pagesize=letter)
         width, height = letter
@@ -228,6 +203,7 @@ async def final_calc(ctx, start: str, end: str):
         p.setFont("Helvetica-Bold", 14)
         p.drawString(50, y, "Trip Counts:")
         y -= 25
+
         p.setFont("Helvetica", 12)
         for member, trips in trip_counts.items():
             p.drawString(60, y, f"{member}: {trips} trips")
@@ -235,32 +211,42 @@ async def final_calc(ctx, start: str, end: str):
 
         y -= 20
         p.setFont("Helvetica-Bold", 14)
+        p.drawString(50, y, "Bonus Amounts:")
+        y -= 25
+
+        p.setFont("Helvetica", 12)
+        for member, bonus in member_bonuses.items():
+            p.drawString(60, y, f"{member}: {bonus:,} units")
+            y -= 20
+
+        y -= 20
+        p.setFont("Helvetica-Bold", 14)
         p.drawString(50, y, "Summary:")
         y -= 25
-        p.setFont("Helvetica", 12)
-        p.drawString(60, y, f"Total Oil Taken: {total_oil} L")
-        p.drawString(60, y-20, f"Total Trips: {total_trips}")
-        p.drawString(60, y-40, f"Trip Amount: {total_trip_amount:,} units")
-        p.drawString(60, y-60, f"Oil Bill Amount: {oil_bill_amount:,.2f} units")
-        p.drawString(60, y-80, f"Grand Total: {grand_total:,.2f} units")
-        p.drawString(60, y-100, f"Bonus Amount: {total_bonus_amount:,} units")
-        p.drawString(60, y-120, f"After Bonus Deduction: {after_bonus_total:,.2f} units")
 
-        y -= 160
-        p.setFont("Helvetica-Bold", 14)
-        p.drawString(50, y, "Shares Distribution:")
-        y -= 25
         p.setFont("Helvetica", 12)
-        for name, value in shares.items():
-            p.drawString(60, y, f"{name}: ₹{value:,.2f}")
-            y -= 20
+        p.drawString(60, y, f"Total Oil Taken: {total_oil} Liters")
+        y -= 20
+        p.drawString(60, y, f"Total Trips: {total_trips}")
+        y -= 20
+        p.drawString(60, y, f"Trip Amount (640k/trip): {total_trip_amount:,} units")
+        y -= 20
+        p.drawString(60, y, f"Oil Bill Amount: {oil_bill_amount:,.2f} units")
+        y -= 20
+        p.drawString(60, y, f"Grand Total: {grand_total:,.2f} units")
+        y -= 20
+        p.drawString(60, y, f"Total Bonus Amount: {total_bonus_amount:,} units")
+        y -= 20
+        p.drawString(60, y, f"After Bonus Deduction: {after_bonus_total:,.2f} units")
+        y -= 20
+        p.drawString(60, y, f"40% Share: {forty_percent_share:,.2f} units")
 
         p.showPage()
         p.save()
         buffer.seek(0)
 
         await ctx.author.send(file=File(buffer, filename="final_report.pdf"))
-        await ctx.send("✅ Final report sent to your DM!")
+        await ctx.send("✅ Final calculation report sent to your DM!")
     except Exception as e:
         await ctx.send(f"❌ Error: {e}")
 
@@ -287,5 +273,5 @@ async def on_message_edit(before, after):
         except Exception as e:
             print("Error updating sheet for edited message:", e)
 
-# Run
+# Run the bot
 bot.run(TOKEN)
