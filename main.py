@@ -43,19 +43,30 @@ async def log_to_sheet(msg):
     except Exception as e:
         print("Error logging to sheet:", e)
 
-# Oil Summary Calculation (correct way)
+# Oil Summary Calculation (correct way with debugging)
 def calculate_oil_summary(messages):
     total_taken = 0
-    messages = sorted(messages, key=lambda m: m.created_at)
+    messages = sorted(messages, key=lambda m: m.created_at)  # Ensure messages are sorted by timestamp
     for i in range(len(messages) - 1):
         try:
+            # Extracting 'Oil stock after' and 'Oil stock before' values from message content
             after_first = float(messages[i].content.split("Oil stock after :")[1].strip())
             before_second = float(messages[i + 1].content.split("Oil stock before :")[1].split("Oil stock after :")[0].strip())
+            
+            # Calculate the difference between after and before oil levels
             diff = after_first - before_second
+            
+            # Debugging line to track values
+            print(f"Message {i}: After = {after_first}, Before = {before_second}, Diff = {diff}")
+
+            # If the oil difference is positive, add it to the total_taken
             if diff > 0:
                 total_taken += diff
-        except Exception:
+        except Exception as e:
+            # Print error if any issue occurs during parsing or calculation
+            print(f"Error processing message {i}: {e}")
             continue
+
     return total_taken
 
 # Trip Summary
@@ -205,31 +216,10 @@ async def final_calc(ctx, start: str, end: str):
         buffer.seek(0)
 
         await ctx.author.send(file=File(buffer, filename="final_report.pdf"))
-        await ctx.send("✅ Final calculation report sent to your DM!")
+        await ctx.send("The final report has been sent to your DMs.")
     except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
-
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user}")
-    daily_oil_summary.start()
-
-@bot.event
-async def on_message(message):
-    if message.channel.id == OIL_LOG_CHANNEL_ID and not message.author.bot:
-        await log_to_sheet(message)
-    await bot.process_commands(message)
-
-@bot.event
-async def on_message_edit(before, after):
-    if after.channel.id == OIL_LOG_CHANNEL_ID and not after.author.bot:
-        try:
-            cell = sheet.find(before.created_at.strftime('%Y-%m-%d %H:%M:%S'))
-            if cell:
-                sheet.update_cell(cell.row, 2, after.author.name)
-                sheet.update_cell(cell.row, 3, after.content)
-        except Exception as e:
-            print("Error updating sheet for edited message:", e)
+        await ctx.send(f"Error: {e}")
 
 # Run bot
 bot.run(TOKEN)
+
