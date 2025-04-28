@@ -110,17 +110,43 @@ async def oil_summary(ctx, start: str, end: str):
         end_time = datetime.fromisoformat(end)
         channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
 
-        # Fetch messages from the specified time range
-        messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
+        # Fetch messages
+        messages = [msg async for msg in channel.history(after=start_time, before=end_time, limit=None)]
+        messages = sorted(messages, key=lambda m: m.created_at)
 
-        # Calculate the total oil taken within the specified time range
-        oil_taken = calculate_oil_summary(messages)
+        # Logging new messages to sheet
+        existing_logs = sheet.col_values(1)
+        for msg in messages:
+            msg_timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            if msg_timestamp not in existing_logs:
+                await log_to_sheet(msg)
 
-        # Send the summary to the user
-        await ctx.send(f"**Oil Summary:**\nFrom {start} to {end}\nTotal Oil Taken: {oil_taken} L")
+        # Correct oil calculation (same as daily summary)
+        total_oil = 0
+        for i in range(len(messages) - 1):
+            try:
+                after = float(messages[i].content.lower().split("oil stock after:")[1].split("\n")[0].strip())
+                before = float(messages[i+1].content.lower().split("oil stock before:")[1].split("\n")[0].strip())
+                diff = before - after
+                if diff > 0:
+                    total_oil += diff
+            except Exception as e:
+                print(f"Skipping error during oil calculation: {e}")
+                continue
+
+        # Create Embed
+        embed = discord.Embed(
+            title="🛢️ Oil Summary Report",
+            description=f"**Date Range:**\n`{start}` ➔ `{end}`",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="Total Oil Taken", value=f"**{total_oil} Liters**", inline=False)
+        embed.set_footer(text="Requested by " + ctx.author.name, icon_url=ctx.author.avatar.url if ctx.author.avatar else None)
+
+        await ctx.send(embed=embed)
+
     except Exception as e:
-        await ctx.send(f"Error: {e}")
-
+        await ctx.send(f"❌ Error: {e}")
 
 
 @bot.command()
