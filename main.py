@@ -85,7 +85,7 @@ def calculate_trip_summary(messages):
     return trip_counts
 
 # Daily oil summary task
-@tasks.loop(time=dtime(hour=18, minute=0, tzinfo=pytz.timezone("Asia/Kolkata")))
+@tasks.loop(time=dtime(hour=18, minute=18, tzinfo=pytz.timezone("Asia/Kolkata")))
 async def daily_oil_summary():
     channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
     report_channel = bot.get_channel(REPORT_CHANNEL_ID)
