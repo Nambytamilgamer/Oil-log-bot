@@ -178,26 +178,57 @@ async def final_calc(ctx, start: str, end: str):
         channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
 
         messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
-        messages = sorted(messages, key=lambda m: m.created_at, reverse=True)
+        messages = sorted(messages, key=lambda m: m.created_at)
 
-        trip_counts = calculate_trip_summary(messages)
-        total_oil = calculate_oil_summary(messages)
+        # Calculate trip counts
+        trip_counts = {}
+        for msg in messages:
+            author = msg.author.name
+            if "Trip" in msg.content:
+                trip_counts[author] = trip_counts.get(author, 0) + 1
 
+        # Calculate total oil taken
+        total_oil = 0
+        for i in range(len(messages) - 1):
+            try:
+                after = float(messages[i].content.lower().split("oil stock after:")[1].split("\n")[0].strip())
+                before = float(messages[i+1].content.lower().split("oil stock before:")[1].split("\n")[0].strip())
+                diff = before - after
+                if diff > 0:
+                    total_oil += diff
+            except Exception as e:
+                print(f"Skipping error during oil calculation: {e}")
+                continue
+
+        # Calculations
         total_trips = sum(trip_counts.values())
         total_trip_amount = total_trips * 640000
+
         member_bonuses = {k: v * 288000 for k, v in trip_counts.items()}
         total_bonus_amount = sum(member_bonuses.values())
+
         oil_bill_amount = (total_oil / 3000) * 480000
         grand_total = total_trip_amount + oil_bill_amount
+
         after_bonus_total = grand_total - total_bonus_amount
-        forty_percent_share = after_bonus_total * 0.4
+
+        # Shares calculation
+        jyothika_share = after_bonus_total * 0.40
+        market_share = after_bonus_total * 0.30
+        raja_rathinam_share = after_bonus_total * 0.20
+        company_community_share = after_bonus_total * 0.10
 
         # Create PDF
+        import io
+        from reportlab.lib.pagesizes import letter
+        from reportlab.pdfgen import canvas
+        from discord import File
+
         buffer = io.BytesIO()
         p = canvas.Canvas(buffer, pagesize=letter)
         width, height = letter
-        y = height - 50
 
+        y = height - 50
         p.setFont("Helvetica-Bold", 18)
         p.drawString(200, y, "Final Calculation Report")
         y -= 40
@@ -241,17 +272,31 @@ async def final_calc(ctx, start: str, end: str):
         y -= 20
         p.drawString(60, y, f"After Bonus Deduction: {after_bonus_total:,.2f} units")
         y -= 20
-        p.drawString(60, y, f"40% Share: {forty_percent_share:,.2f} units")
+
+        y -= 20
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(50, y, "Shares Distribution:")
+        y -= 25
+
+        p.setFont("Helvetica", 12)
+        p.drawString(60, y, f"Jyothika (40%): ₹{jyothika_share:,.2f}")
+        y -= 20
+        p.drawString(60, y, f"Market (30%): ₹{market_share:,.2f}")
+        y -= 20
+        p.drawString(60, y, f"Raja Rathinam (20%): ₹{raja_rathinam_share:,.2f}")
+        y -= 20
+        p.drawString(60, y, f"Company & Community Needs (10%): ₹{company_community_share:,.2f}")
 
         p.showPage()
         p.save()
         buffer.seek(0)
 
+        # Send the PDF as DM
         await ctx.author.send(file=File(buffer, filename="final_report.pdf"))
         await ctx.send("✅ Final calculation report sent to your DM!")
+
     except Exception as e:
         await ctx.send(f"❌ Error: {e}")
-
 # Events
 @bot.event
 async def on_ready():
