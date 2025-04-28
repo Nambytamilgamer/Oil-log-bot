@@ -106,38 +106,21 @@ async def oil_summary(ctx, start: str, end: str):
         await ctx.send("🚫 Sorry, you don't have permission to use this command.")
         return
     try:
-        # Parse input
         start_time = datetime.fromisoformat(start)
         end_time = datetime.fromisoformat(end)
         channel = bot.get_channel(OIL_LOG_CHANNEL_ID)
 
-        # Fetch messages
-        messages = [msg async for msg in channel.history(after=start_time, before=end_time, limit=None)]
+        # Fetch messages from the specified time range
+        messages = [msg async for msg in channel.history(after=start_time, before=end_time)]
 
-        # Fetch existing logs to prevent duplicate entries
-        existing_logs = sheet.col_values(1)  # Get all timestamps already in sheet
-
-        for msg in messages:
-            msg_timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
-            if msg_timestamp not in existing_logs:
-                await log_to_sheet(msg)
-
-        # Calculate oil
+        # Calculate the total oil taken within the specified time range
         oil_taken = calculate_oil_summary(messages)
 
-        # Create an embed
-        embed = discord.Embed(
-            title="🛢️ Oil Summary Report",
-            description=f"**Date Range:**\n`{start}` ➔ `{end}`",
-            color=discord.Color.blue()
-        )
-        embed.add_field(name="Total Oil Taken", value=f"**{oil_taken} Liters**", inline=False)
-        embed.set_footer(text="Requested by " + ctx.author.name, icon_url=ctx.author.avatar.url if ctx.author.avatar else None)
-
-        await ctx.send(embed=embed)
-
+        # Send the summary to the user
+        await ctx.send(f"**Oil Summary:**\nFrom {start} to {end}\nTotal Oil Taken: {oil_taken} L")
     except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
+        await ctx.send(f"Error: {e}")
+
 
 
 @bot.command()
