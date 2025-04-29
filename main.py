@@ -11,7 +11,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from discord import File
 
-# ENV
+# Environment variables
 TOKEN = os.getenv("TOKEN")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 GOOGLE_CREDS_JSON = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
@@ -43,39 +43,20 @@ async def log_to_sheet(msg):
     except Exception as e:
         print("Error logging to sheet:", e)
 
-# Corrected Oil Summary Calculation
+# Oil Summary Calculation (corrected)
 def calculate_oil_summary(messages):
     total_taken = 0
     messages = sorted(messages, key=lambda m: m.created_at)
-
     for i in range(len(messages) - 1):
         try:
-            current_after = None
-            next_before = None
-
-            # Extract 'after' from current message
-            after_parts = messages[i].content.split("Oil stock after:")
-            if len(after_parts) > 1:
-                current_after = float(after_parts[1].strip())
-
-            # Extract 'before' from next message
-            before_parts = messages[i + 1].content.split("oil stock before:")
-            if len(before_parts) > 1:
-                next_before = float(before_parts[1].split("Oil stock")[0].strip())
-
-            # Calculate if both values exist
-            if current_after is not None and next_before is not None:
-                diff = current_after - next_before
-                if diff > 0:
-                    total_taken += diff
-
-        except Exception as e:
-            print(f"Error in oil summary calc at index {i}: {e}")
+            after_current = float(messages[i].content.split("Oil stock after:")[1].strip())
+            before_next = float(messages[i + 1].content.split("oil stock before:")[1].strip())
+            diff = after_current - before_next
+            if diff > 0:
+                total_taken += diff
+        except Exception:
             continue
-
     return total_taken
-
-
 
 # Trip Summary
 def calculate_trip_summary(messages):
@@ -181,11 +162,9 @@ async def final_calc(ctx, start: str, end: str):
         p = canvas.Canvas(buffer, pagesize=letter)
         width, height = letter
         y = height - 50
-
         p.setFont("Helvetica-Bold", 18)
         p.drawString(200, y, "Final Calculation Report")
         y -= 40
-
         p.setFont("Helvetica-Bold", 14)
         p.drawString(50, y, "Trip Counts:")
         y -= 25
@@ -193,7 +172,6 @@ async def final_calc(ctx, start: str, end: str):
         for member, trips in trip_counts.items():
             p.drawString(60, y, f"{member}: {trips} trips")
             y -= 20
-
         y -= 20
         p.setFont("Helvetica-Bold", 14)
         p.drawString(50, y, "Bonus Amounts:")
@@ -202,7 +180,6 @@ async def final_calc(ctx, start: str, end: str):
         for member, bonus in member_bonuses.items():
             p.drawString(60, y, f"{member}: {bonus:,} units")
             y -= 20
-
         y -= 20
         p.setFont("Helvetica-Bold", 14)
         p.drawString(50, y, "Summary:")
@@ -223,7 +200,6 @@ async def final_calc(ctx, start: str, end: str):
         p.drawString(60, y, f"After Bonus Deduction: {after_bonus_total:,.2f} units")
         y -= 20
         p.drawString(60, y, f"40% Share: {forty_percent_share:,.2f} units")
-
         p.showPage()
         p.save()
         buffer.seek(0)
