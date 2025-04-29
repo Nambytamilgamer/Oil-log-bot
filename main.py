@@ -49,14 +49,15 @@ def calculate_oil_summary(messages):
     messages = sorted(messages, key=lambda m: m.created_at)
     for i in range(len(messages) - 1):
         try:
-            after_1 = float(messages[i].content.split("Oil stock after :")[1].strip().split()[0])
-            before_2 = float(messages[i + 1].content.split("Oil stock before :")[1].strip().split()[0])
-            taken = after_1 - before_2
-            if taken > 0:
-                total_taken += taken
+            after_current = float(messages[i].content.split("Oil stock after:")[1].strip())
+            before_next = float(messages[i + 1].content.split("oil stock before:")[1].strip())
+            diff = after_current - before_next
+            if diff > 0:
+                total_taken += diff
         except Exception:
             continue
     return total_taken
+
 
 # Trip Summary
 def calculate_trip_summary(messages):
