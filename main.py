@@ -47,16 +47,34 @@ async def log_to_sheet(msg):
 def calculate_oil_summary(messages):
     total_taken = 0
     messages = sorted(messages, key=lambda m: m.created_at)
+
     for i in range(len(messages) - 1):
         try:
-            after_current = float(messages[i].content.split("Oil stock after:")[1].strip())
-            before_next = float(messages[i + 1].content.split("oil stock before:")[1].strip())
-            diff = after_current - before_next
-            if diff > 0:
-                total_taken += diff
-        except Exception:
+            current_after = None
+            next_before = None
+
+            # Extract 'after' from current message
+            after_parts = messages[i].content.split("Oil stock after:")
+            if len(after_parts) > 1:
+                current_after = float(after_parts[1].strip())
+
+            # Extract 'before' from next message
+            before_parts = messages[i + 1].content.split("oil stock before:")
+            if len(before_parts) > 1:
+                next_before = float(before_parts[1].split("Oil stock")[0].strip())
+
+            # Calculate if both values exist
+            if current_after is not None and next_before is not None:
+                diff = current_after - next_before
+                if diff > 0:
+                    total_taken += diff
+
+        except Exception as e:
+            print(f"Error in oil summary calc at index {i}: {e}")
             continue
+
     return total_taken
+
 
 
 # Trip Summary
